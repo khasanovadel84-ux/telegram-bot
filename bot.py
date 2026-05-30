@@ -3,6 +3,7 @@ import time
 import os
 import traceback
 from telebot import apihelper
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -23,6 +24,13 @@ if proxy:
 def user_tag(message):
     return f"@{message.from_user.username}" if message.from_user.username else f"id={message.from_user.id}"
 
+
+def main_keyboard():
+    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+    markup.row(KeyboardButton("📋 Помощь"), KeyboardButton("ℹ️ О боте"))
+    markup.row(KeyboardButton("💬 Задать вопрос"))
+    return markup
+
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     try:
@@ -30,9 +38,10 @@ def send_welcome(message):
         bot.reply_to(
             message,
             "Привет! Я твой ИИ-помощник.\n\n"
-            "Доступные команды:\n"
-            "/help - список команд\n"
-            "/about - информация о боте"
+            "Используй кнопки ниже или команды:\n"
+            "/help — список команд\n"
+            "/about — информация о боте",
+            reply_markup=main_keyboard()
         )
     except Exception as e:
         print(f"[ERROR] Ошибка в /start handler: {e}", flush=True)
@@ -67,6 +76,18 @@ def send_about(message):
 def handle_text(message):
     try:
         print(f"[UPDATE] Текст от {user_tag(message)} (chat={message.chat.id}): {message.text}", flush=True)
+        text = (message.text or "").strip()
+
+        if text == "📋 Помощь":
+            send_help(message)
+            return
+        if text == "ℹ️ О боте":
+            send_about(message)
+            return
+        if text == "💬 Задать вопрос":
+            bot.reply_to(message, "Напиши свой вопрос одним сообщением — я отвечу.")
+            return
+
         bot.reply_to(message, "Я получил сообщение!")
     except Exception as e:
         print(f"[ERROR] Ошибка в text handler: {e}", flush=True)

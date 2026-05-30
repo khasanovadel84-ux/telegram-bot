@@ -145,7 +145,9 @@ def source_priority(url):
 
 def needs_official_rates(text):
     normalized = text.lower()
-    return any(word in normalized for word in ("доллар", "usd", "евро", "eur", "курс", "рубл"))
+    return any(word in normalized for word in (
+        "доллар", "usd", "евро", "eur", "курс", "рубл", "юан", "cny",
+    ))
 
 
 def get_official_rates():
@@ -156,11 +158,15 @@ def get_official_rates():
         date = data["Date"][:10]
         usd = data["Valute"]["USD"]["Value"]
         eur = data["Valute"]["EUR"]["Value"]
-        return (
-            f"Официальные курсы ЦБ РФ на {date}:\n"
-            f"USD: {usd:.4f} ₽\n"
-            f"EUR: {eur:.4f} ₽"
-        )
+        lines = [
+            f"Официальные курсы ЦБ РФ на {date}:",
+            f"USD: {usd:.4f} ₽",
+            f"EUR: {eur:.4f} ₽",
+        ]
+        if "CNY" in data["Valute"]:
+            cny = data["Valute"]["CNY"]["Value"]
+            lines.append(f"CNY: {cny:.4f} ₽")
+        return "\n".join(lines)
     except Exception as e:
         log_error(f"CBR: {e}")
         return ""
@@ -168,7 +174,7 @@ def get_official_rates():
 
 def search_web(query, max_results=5):
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
 
         items = []
         with DDGS() as ddgs:

@@ -50,11 +50,12 @@ HELP_TEXT = (
     "/start - приветствие\n"
     "/help - помощь\n"
     "/about - о боте\n"
+    "/status - статус бота\n"
     "/clear - забыть историю диалога\n\n"
     "Также просто напиши любой текст."
 )
 ABOUT_TEXT = "Я Telegram-бот на Python с ИИ-помощником (YandexGPT + pyTelegramBotAPI)."
-BOT_VERSION = "v6-memory"
+BOT_VERSION = "v7-status"
 HISTORY_LIMIT = 10
 
 chat_history = {}
@@ -89,6 +90,25 @@ def add_history(chat_id, role, text):
 
 def clear_history(chat_id):
     chat_history.pop(chat_id, None)
+
+
+def show_typing(chat_id):
+    try:
+        bot.send_chat_action(chat_id, "typing")
+    except Exception:
+        pass
+
+
+def status_text(chat_id):
+    ai = "включён" if YANDEX_API_KEY and YANDEX_FOLDER_ID else "выключен"
+    count = len(get_history(chat_id))
+    return (
+        f"Статус бота\n\n"
+        f"Версия: {BOT_VERSION}\n"
+        f"ИИ (YandexGPT): {ai}\n"
+        f"Сообщений в памяти: {count} из {HISTORY_LIMIT}\n\n"
+        "Команда /clear — очистить память"
+    )
 
 
 def ask_ai(question, chat_id):
@@ -145,6 +165,7 @@ def smart_reply(text, chat_id):
     if normalized in ("пока", "до свидания", "bye", "goodbye"):
         return "До встречи! Напишите, если понадоблюсь."
 
+    show_typing(chat_id)
     ai_answer = ask_ai(text, chat_id)
     if ai_answer:
         add_history(chat_id, "user", text)
@@ -205,6 +226,15 @@ def send_clear(message):
         bot.reply_to(message, "История диалога очищена. Можете начать новый разговор.")
     except Exception as e:
         log_error(f"/clear: {e}")
+
+
+@bot.message_handler(commands=['status'])
+def send_status(message):
+    try:
+        log_update(message.from_user, "/status")
+        bot.reply_to(message, status_text(message.chat.id), reply_markup=inline_keyboard())
+    except Exception as e:
+        log_error(f"/status: {e}")
 
 
 @bot.message_handler(func=lambda message: True, content_types=['text'])

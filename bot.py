@@ -52,11 +52,34 @@ HELP_TEXT = (
     "/about - о боте\n"
     "/status - статус бота\n"
     "/clear - забыть историю диалога\n\n"
-    "Также просто напиши любой текст."
+    "Задай любой вопрос — бот ищет актуальную\n"
+    "информацию в интернете и отвечает с помощью ИИ."
 )
-ABOUT_TEXT = "Я Telegram-бот на Python с ИИ-помощником (YandexGPT + pyTelegramBotAPI)."
-BOT_VERSION = "v7-status"
+ABOUT_TEXT = (
+    "Я Telegram-бот на Python с ИИ-помощником.\n"
+    "YandexGPT + поиск актуальной информации в интернете."
+)
+BOT_VERSION = "v8-web"
 HISTORY_LIMIT = 10
+
+TRUSTED_DOMAINS = (
+    "cbr.ru",
+    "minfin.gov.ru",
+    "government.ru",
+    "wikipedia.org",
+    "tass.ru",
+    "ria.ru",
+    "interfax.ru",
+    "rbc.ru",
+    "moex.com",
+    "who.int",
+)
+
+SYSTEM_PROMPT = (
+    "Ты дружелюбный Telegram-помощник. Отвечай кратко и понятно на русском языке. "
+    "Если ниже есть актуальные данные из интернета — опирайся на них в первую очередь. "
+    "Не выдумывай цифры, курсы и факты. Если данных недостаточно — скажи об этом честно."
+)
 
 chat_history = {}
 
@@ -106,20 +129,89 @@ def status_text(chat_id):
         f"Статус бота\n\n"
         f"Версия: {BOT_VERSION}\n"
         f"ИИ (YandexGPT): {ai}\n"
+        f"Поиск в интернете: включён\n"
         f"Сообщений в памяти: {count} из {HISTORY_LIMIT}\n\n"
         "Команда /clear — очистить память"
     )
 
 
+def source_priority(url):
+    url = url.lower()
+    for i, domain in enumerate(TRUSTED_DOMAINS):
+        if domain in url:
+            return i
+    return len(TRUSTED_DOMAINS)
+
+
+def needs_official_rates(text):
+    normalized = text.lower()
+    return any(word in normalized for word in ("доллар", "usd", "евро", "eur", "курс", "рубл"))
+
+
+def get_official_rates():
+    try:
+        response = requests.get("https://www.cbr-xml-daily.ru/daily_json.js", timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        date = data["Date"][:10]
+        usd = data["Valute"]["USD"]["Value"]
+        eur = data["Valute"]["EUR"]["Value"]
+        return (
+            f"Официальные курсы ЦБ РФ на {date}:\n"
+            f"USD: {usd:.4f} ₽\n"
+            f"EUR: {eur:.4f} ₽"
+        )
+    except Exception as e:
+        log_error(f"CBR: {e}")
+        return ""
+
+
+def search_web(query, max_results=5):
+    try:
+        from duckduckgo_search import DDGS
+
+        items = []
+        with DDGS() as ddgs:
+            for item in ddgs.text(query, region="ru-ru", max_results=max_results):
+                items.append({
+                    "title": item.get("title", ""),
+                    "body": item.get("body", ""),
+                    "url": item.get("href", ""),
+                })
+        items.sort(key=lambda x: source_priority(x["url"]))
+        return items[:3]
+    except Exception as e:
+        log_error(f"Web search: {e}")
+        return []
+
+
+def build_web_context(question):
+    parts = []
+
+    if needs_official_rates(question):
+        rates = get_official_rates()
+        if rates:
+            parts.append(rates)
+
+    results = search_web(question)
+    if results:
+        parts.append("Результаты поиска (приоритет — проверенные источники):")
+        for i, item in enumerate(results, 1):
+            parts.append(f"{i}. {item['title']}\n{item['url']}\n{item['body']}")
+
+    return "\n\n".join(parts)
+
+
 def ask_ai(question, chat_id):
     if YANDEX_API_KEY and YANDEX_FOLDER_ID:
         try:
-            messages = [
-                {
-                    "role": "system",
-                    "text": "Ты дружелюбный Telegram-помощник. Отвечай кратко и понятно на русском языке.",
-                },
-            ]
+            system_text = SYSTEM_PROMPT
+            web_context = build_web_context(question)
+            if web_context:
+                log_info(f"Найдены данные из интернета: {question[:50]}")
+                system_text += f"\n\n--- Актуальные данные ---\n{web_context}"
+
+            messages = [{"role": "system", "text": system_text}]
             messages.extend(get_history(chat_id))
             messages.append({"role": "user", "text": question})
 

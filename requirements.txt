@@ -1,2 +1,3 @@
 pyTelegramBotAPI
 PySocks
+duckduckgo-search

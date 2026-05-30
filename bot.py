@@ -49,11 +49,15 @@ HELP_TEXT = (
     "Команды:\n"
     "/start - приветствие\n"
     "/help - помощь\n"
-    "/about - о боте\n\n"
+    "/about - о боте\n"
+    "/clear - забыть историю диалога\n\n"
     "Также просто напиши любой текст."
 )
 ABOUT_TEXT = "Я Telegram-бот на Python с ИИ-помощником (YandexGPT + pyTelegramBotAPI)."
-BOT_VERSION = "v5-clean"
+BOT_VERSION = "v6-memory"
+HISTORY_LIMIT = 10
+
+chat_history = {}
 
 
 def log_info(message):
@@ -68,9 +72,37 @@ def log_update(user, action):
     print(f"[UPDATE] {user_label(user)} → {action}", flush=True)
 
 
-def ask_ai(question):
+def get_history(chat_id):
+    return chat_history.setdefault(chat_id, [])
+
+
+def trim_history(history):
+    if len(history) > HISTORY_LIMIT:
+        del history[:-HISTORY_LIMIT]
+
+
+def add_history(chat_id, role, text):
+    history = get_history(chat_id)
+    history.append({"role": role, "text": text})
+    trim_history(history)
+
+
+def clear_history(chat_id):
+    chat_history.pop(chat_id, None)
+
+
+def ask_ai(question, chat_id):
     if YANDEX_API_KEY and YANDEX_FOLDER_ID:
         try:
+            messages = [
+                {
+                    "role": "system",
+                    "text": "Ты дружелюбный Telegram-помощник. Отвечай кратко и понятно на русском языке.",
+                },
+            ]
+            messages.extend(get_history(chat_id))
+            messages.append({"role": "user", "text": question})
+
             response = requests.post(
                 "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
                 headers={
@@ -84,13 +116,7 @@ def ask_ai(question):
                         "temperature": 0.6,
                         "maxTokens": 500,
                     },
-                    "messages": [
-                        {
-                            "role": "system",
-                            "text": "Ты дружелюбный Telegram-помощник. Отвечай кратко и понятно на русском языке.",
-                        },
-                        {"role": "user", "text": question},
-                    ],
+                    "messages": messages,
                 },
                 timeout=60,
             )
@@ -103,7 +129,7 @@ def ask_ai(question):
     return None
 
 
-def smart_reply(text):
+def smart_reply(text, chat_id):
     normalized = text.lower().strip()
 
     greetings = ("привет", "здравствуй", "здравствуйте", "hi", "hello", "добрый день", "добрый вечер")
@@ -119,8 +145,10 @@ def smart_reply(text):
     if normalized in ("пока", "до свидания", "bye", "goodbye"):
         return "До встречи! Напишите, если понадоблюсь."
 
-    ai_answer = ask_ai(text)
+    ai_answer = ask_ai(text, chat_id)
     if ai_answer:
+        add_history(chat_id, "user", text)
+        add_history(chat_id, "assistant", ai_answer)
         return ai_answer
 
     if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
@@ -169,6 +197,16 @@ def send_about(message):
         log_error(f"/about: {e}")
 
 
+@bot.message_handler(commands=['clear'])
+def send_clear(message):
+    try:
+        log_update(message.from_user, "/clear")
+        clear_history(message.chat.id)
+        bot.reply_to(message, "История диалога очищена. Можете начать новый разговор.")
+    except Exception as e:
+        log_error(f"/clear: {e}")
+
+
 @bot.message_handler(func=lambda message: True, content_types=['text'])
 def handle_text(message):
     try:
@@ -185,7 +223,7 @@ def handle_text(message):
             bot.reply_to(message, "Напиши свой вопрос одним сообщением — я отвечу.")
             return
 
-        bot.reply_to(message, smart_reply(text), reply_markup=inline_keyboard())
+        bot.reply_to(message, smart_reply(text, message.chat.id), reply_markup=inline_keyboard())
     except Exception as e:
         log_error(f"text: {e}")
 

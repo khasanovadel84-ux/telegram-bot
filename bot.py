@@ -54,6 +54,29 @@ HELP_TEXT = (
     "Также просто напиши любой текст."
 )
 ABOUT_TEXT = "Я Telegram-бот на Python (pyTelegramBotAPI)."
+BOT_VERSION = "v3-умные-ответы"
+
+
+def smart_reply(text):
+    normalized = text.lower().strip()
+
+    greetings = ("привет", "здравствуй", "здравствуйте", "hi", "hello", "добрый день", "добрый вечер")
+    if any(word in normalized for word in greetings):
+        return "Привет! Рад вас видеть. Чем могу помочь?"
+
+    if "как дела" in normalized or normalized in ("как ты", "как сам"):
+        return "Всё отлично, спасибо! А у вас как?"
+
+    if "спасибо" in normalized or "благодар" in normalized:
+        return "Пожалуйста! Рад помочь."
+
+    if normalized in ("пока", "до свидания", "bye", "goodbye"):
+        return "До встречи! Напишите, если понадоблюсь."
+
+    if "?" in normalized or normalized.startswith(("что", "как", "где", "когда", "почему", "зачем")):
+        return f'Вы спросили: "{text}"\n\nСкоро подключим ИИ-ответы. Пока отвечаю по простым фразам.'
+
+    return f'Я получил ваше сообщение: "{text}"\n\nНапишите "привет", "как дела?" или задайте вопрос.'
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -62,8 +85,8 @@ def send_welcome(message):
         bot.reply_to(
             message,
             "Привет! Я твой ИИ-помощник.\n\n"
-            "Нажми кнопки под этим сообщением\n"
-            "или используй клавиатуру внизу экрана.",
+            f"Версия: {BOT_VERSION}\n"
+            "Нажми кнопки прямо под этим сообщением 👇",
             reply_markup=inline_keyboard()
         )
         bot.send_message(
@@ -110,7 +133,7 @@ def handle_text(message):
             bot.reply_to(message, "Напиши свой вопрос одним сообщением — я отвечу.")
             return
 
-        bot.reply_to(message, "Я получил сообщение!")
+        bot.reply_to(message, smart_reply(text), reply_markup=inline_keyboard())
     except Exception as e:
         print(f"[ERROR] Ошибка в text handler: {e}", flush=True)
 
@@ -132,7 +155,7 @@ def handle_callback(call):
         print(f"[ERROR] Ошибка в callback handler: {e}", flush=True)
 
 if __name__ == "__main__":
-    print("[INFO] Запускаю Telegram-бота...", flush=True)
+    print(f"[INFO] Запускаю Telegram-бота ({BOT_VERSION})...", flush=True)
     while True:
         try:
             me = bot.get_me()

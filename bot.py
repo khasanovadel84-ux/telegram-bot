@@ -2,10 +2,13 @@ import telebot
 import time
 import os
 import traceback
+import requests
 from telebot import apihelper
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+YANDEX_API_KEY = os.getenv("YANDEX_API_KEY")
+YANDEX_FOLDER_ID = os.getenv("YANDEX_FOLDER_ID")
 if not BOT_TOKEN:
     raise RuntimeError("Не задан BOT_TOKEN. Добавь токен бота в переменные окружения.")
 
@@ -53,8 +56,45 @@ HELP_TEXT = (
     "/about - о боте\n\n"
     "Также просто напиши любой текст."
 )
-ABOUT_TEXT = "Я Telegram-бот на Python (pyTelegramBotAPI)."
-BOT_VERSION = "v3-умные-ответы"
+ABOUT_TEXT = "Я Telegram-бот на Python с ИИ-помощником (YandexGPT + pyTelegramBotAPI)."
+BOT_VERSION = "v4-yandex"
+
+
+def ask_ai(question):
+    if YANDEX_API_KEY and YANDEX_FOLDER_ID:
+        try:
+            print(f"[INFO] Запрос к YandexGPT: {question[:80]}...", flush=True)
+            response = requests.post(
+                "https://llm.api.cloud.yandex.net/foundationModels/v1/completion",
+                headers={
+                    "Authorization": f"Api-Key {YANDEX_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "modelUri": f"gpt://{YANDEX_FOLDER_ID}/yandexgpt-lite/latest",
+                    "completionOptions": {
+                        "stream": False,
+                        "temperature": 0.6,
+                        "maxTokens": 500,
+                    },
+                    "messages": [
+                        {
+                            "role": "system",
+                            "text": "Ты дружелюбный Telegram-помощник. Отвечай кратко и понятно на русском языке.",
+                        },
+                        {"role": "user", "text": question},
+                    ],
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            answer = response.json()["result"]["alternatives"][0]["message"]["text"].strip()
+            print("[INFO] YandexGPT ответил успешно", flush=True)
+            return answer
+        except Exception as e:
+            print(f"[ERROR] Ошибка YandexGPT: {e}", flush=True)
+
+    return None
 
 
 def smart_reply(text):
@@ -62,7 +102,7 @@ def smart_reply(text):
 
     greetings = ("привет", "здравствуй", "здравствуйте", "hi", "hello", "добрый день", "добрый вечер")
     if any(word in normalized for word in greetings):
-        return "Привет! Рад вас видеть. Чем могу помочь?"
+        return "Привет! Рад вас видеть. Задайте любой вопрос — отвечу с помощью ИИ."
 
     if "как дела" in normalized or normalized in ("как ты", "как сам"):
         return "Всё отлично, спасибо! А у вас как?"
@@ -73,10 +113,17 @@ def smart_reply(text):
     if normalized in ("пока", "до свидания", "bye", "goodbye"):
         return "До встречи! Напишите, если понадоблюсь."
 
-    if "?" in normalized or normalized.startswith(("что", "как", "где", "когда", "почему", "зачем")):
-        return f'Вы спросили: "{text}"\n\nСкоро подключим ИИ-ответы. Пока отвечаю по простым фразам.'
+    ai_answer = ask_ai(text)
+    if ai_answer:
+        return ai_answer
 
-    return f'Я получил ваше сообщение: "{text}"\n\nНапишите "привет", "как дела?" или задайте вопрос.'
+    if not YANDEX_API_KEY or not YANDEX_FOLDER_ID:
+        return (
+            f'Я получил: "{text}"\n\n'
+            "ИИ пока не подключен. Добавьте YANDEX_API_KEY и YANDEX_FOLDER_ID в GitHub Secrets."
+        )
+
+    return f'Не удалось получить ответ от ИИ. Попробуйте переформулировать вопрос: "{text}"'
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -156,6 +203,10 @@ def handle_callback(call):
 
 if __name__ == "__main__":
     print(f"[INFO] Запускаю Telegram-бота ({BOT_VERSION})...", flush=True)
+    if YANDEX_API_KEY and YANDEX_FOLDER_ID:
+        print("[INFO] ИИ включен (YandexGPT)", flush=True)
+    else:
+        print("[INFO] ИИ выключен — добавьте YANDEX_API_KEY и YANDEX_FOLDER_ID", flush=True)
     while True:
         try:
             me = bot.get_me()

@@ -3,7 +3,7 @@ import time
 import os
 import traceback
 from telebot import apihelper
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
@@ -21,15 +21,39 @@ if proxy:
     print(f"[INFO] Использую прокси: {proxy}", flush=True)
 
 
+def user_label(user):
+    return f"@{user.username}" if user.username else f"id={user.id}"
+
+
 def user_tag(message):
-    return f"@{message.from_user.username}" if message.from_user.username else f"id={message.from_user.id}"
+    return user_label(message.from_user)
 
 
 def main_keyboard():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.row(KeyboardButton("📋 Помощь"), KeyboardButton("ℹ️ О боте"))
-    markup.row(KeyboardButton("💬 Задать вопрос"))
+    markup.row(KeyboardButton("Помощь"), KeyboardButton("О боте"))
+    markup.row(KeyboardButton("Задать вопрос"))
     return markup
+
+
+def inline_keyboard():
+    markup = InlineKeyboardMarkup()
+    markup.row(
+        InlineKeyboardButton("Помощь", callback_data="help"),
+        InlineKeyboardButton("О боте", callback_data="about"),
+    )
+    markup.row(InlineKeyboardButton("Задать вопрос", callback_data="ask"))
+    return markup
+
+
+HELP_TEXT = (
+    "Команды:\n"
+    "/start - приветствие\n"
+    "/help - помощь\n"
+    "/about - о боте\n\n"
+    "Также просто напиши любой текст."
+)
+ABOUT_TEXT = "Я Telegram-бот на Python (pyTelegramBotAPI)."
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -38,11 +62,16 @@ def send_welcome(message):
         bot.reply_to(
             message,
             "Привет! Я твой ИИ-помощник.\n\n"
-            "Используй кнопки ниже или команды:\n"
-            "/help — список команд\n"
-            "/about — информация о боте",
+            "Нажми кнопки под этим сообщением\n"
+            "или используй клавиатуру внизу экрана.",
+            reply_markup=inline_keyboard()
+        )
+        bot.send_message(
+            message.chat.id,
+            "Быстрые кнопки также доступны внизу 👇",
             reply_markup=main_keyboard()
         )
+        print("[INFO] Кнопки отправлены", flush=True)
     except Exception as e:
         print(f"[ERROR] Ошибка в /start handler: {e}", flush=True)
 
@@ -51,14 +80,7 @@ def send_welcome(message):
 def send_help(message):
     try:
         print(f"[UPDATE] /help от {user_tag(message)} (chat={message.chat.id})", flush=True)
-        bot.reply_to(
-            message,
-            "Команды:\n"
-            "/start - приветствие\n"
-            "/help - помощь\n"
-            "/about - о боте\n\n"
-            "Также просто напиши любой текст."
-        )
+        bot.reply_to(message, HELP_TEXT, reply_markup=inline_keyboard())
     except Exception as e:
         print(f"[ERROR] Ошибка в /help handler: {e}", flush=True)
 
@@ -67,7 +89,7 @@ def send_help(message):
 def send_about(message):
     try:
         print(f"[UPDATE] /about от {user_tag(message)} (chat={message.chat.id})", flush=True)
-        bot.reply_to(message, "Я Telegram-бот на Python (pyTelegramBotAPI).")
+        bot.reply_to(message, ABOUT_TEXT, reply_markup=inline_keyboard())
     except Exception as e:
         print(f"[ERROR] Ошибка в /about handler: {e}", flush=True)
 
@@ -78,19 +100,36 @@ def handle_text(message):
         print(f"[UPDATE] Текст от {user_tag(message)} (chat={message.chat.id}): {message.text}", flush=True)
         text = (message.text or "").strip()
 
-        if text == "📋 Помощь":
+        if text in ("Помощь", "📋 Помощь"):
             send_help(message)
             return
-        if text == "ℹ️ О боте":
+        if text in ("О боте", "ℹ️ О боте"):
             send_about(message)
             return
-        if text == "💬 Задать вопрос":
+        if text in ("Задать вопрос", "💬 Задать вопрос"):
             bot.reply_to(message, "Напиши свой вопрос одним сообщением — я отвечу.")
             return
 
         bot.reply_to(message, "Я получил сообщение!")
     except Exception as e:
         print(f"[ERROR] Ошибка в text handler: {e}", flush=True)
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_callback(call):
+    try:
+        tag = user_label(call.from_user)
+        print(f"[UPDATE] Кнопка: {call.data} от {tag}", flush=True)
+        bot.answer_callback_query(call.id)
+
+        if call.data == "help":
+            bot.send_message(call.message.chat.id, HELP_TEXT, reply_markup=inline_keyboard())
+        elif call.data == "about":
+            bot.send_message(call.message.chat.id, ABOUT_TEXT, reply_markup=inline_keyboard())
+        elif call.data == "ask":
+            bot.send_message(call.message.chat.id, "Напиши свой вопрос одним сообщением — я отвечу.")
+    except Exception as e:
+        print(f"[ERROR] Ошибка в callback handler: {e}", flush=True)
 
 if __name__ == "__main__":
     print("[INFO] Запускаю Telegram-бота...", flush=True)
@@ -107,7 +146,7 @@ if __name__ == "__main__":
                 timeout=30,
                 long_polling_timeout=30,
                 skip_pending=True,
-                allowed_updates=["message"]
+                allowed_updates=["message", "callback_query"]
             )
         except Exception as e:
             print(f"[ERROR] Бот упал с ошибкой подключения/работы: {e}", flush=True)
